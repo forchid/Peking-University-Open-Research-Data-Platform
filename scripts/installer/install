@@ -65,7 +65,7 @@ if ($pg_only) {
 my %CONFIG_DEFAULTS = (
     'HOST_DNS_ADDRESS',    'localhost',
     'GLASSFISH_DIRECTORY', '/usr/local/glassfish4',
-    'MAIL_SERVER',         'mail.lib.pku.edu.cn',
+    'MAIL_SERVER',         'localhost',
 
     'POSTGRES_SERVER',   'localhost',
     'POSTGRES_PORT',     5432,
@@ -98,12 +98,11 @@ my %CONFIG_PROMPTS = (
 
 );
 
-# Supported Posstgres JDBC drivers:
-# (have to be configured explicitely, so that Perl "taint" (security) mode
+# Supported Postgres JDBC drivers:
+# (have to be configured explicitly, so that Perl "taint" (security) mode
 # doesn't get paranoid)
 
 my %POSTGRES_DRIVERS = (
-    #    "8_4", "postgresql-8.3-603.jdbc4.jar",
     "8_4", "postgresql-8.4-703.jdbc4.jar",
     "9_0", "postgresql-9.0-802.jdbc4.jar",
     "9_1", "postgresql-9.1-902.jdbc4.jar",
@@ -115,14 +114,14 @@ my %POSTGRES_DRIVERS = (
 
 # user -- must be root:
 
-my $user_real = `who am i`;
-chop $user_real;
-$user_real =~ s/ .*$//;
+#my $user_real = `who am i`;
+#chop $user_real;
+#$user_real =~ s/ .*$//;
 
-if ( $< != 0 ) {
-    print STDERR "\nERROR: You must be logged in as root to run the installer.\n\n";
-    exit 1;
-}
+#if ( $< != 0 ) {
+#    print STDERR "\nERROR: You must be logged in as root to run the installer.\n\n";
+#    exit 1;
+#}
 
 # OS:
 
@@ -495,9 +494,6 @@ if ( $CONFIG_DEFAULTS{'POSTGRES_SERVER'} eq 'localhost' ) {
         exit 1;
     }
 
-    if ( $pg_major_version == 0 ) {
-    }
-
     # 4. CONFIGURE POSTGRES:
 
     print "\nConfiguring Postgres Database:\n";
@@ -517,7 +513,7 @@ if ( $CONFIG_DEFAULTS{'POSTGRES_SERVER'} eq 'localhost' ) {
 
     chdir("/tmp");
 
-    if ( !system( $psql_exec . "/psql -c 'SELECT * FROM pg_roles' > /dev/null 2>&1" ) ) {
+    if ( !system( $psql_exec . "/psql -U postgres -c 'SELECT * FROM pg_roles' > /dev/null 2>&1" ) ) {
         print "Yes, it is.\n";
     }
     else {
@@ -544,7 +540,7 @@ if ( $CONFIG_DEFAULTS{'POSTGRES_SERVER'} eq 'localhost' ) {
     # 4c. CHECK IF THIS DB ALREADY EXISTS:
 
     my $psql_command_dbcheck =
-      $psql_exec . "/psql -c \"\" -d " . $CONFIG_DEFAULTS{'POSTGRES_DATABASE'} . ">/dev/null 2>&1";
+      $psql_exec . "/psql -U postgres -c \"\" -d " . $CONFIG_DEFAULTS{'POSTGRES_DATABASE'} . ">/dev/null 2>&1";
     if ($force) {
         print "WARNING! Database "
           . $CONFIG_DEFAULTS{'POSTGRES_DATABASE'}
@@ -599,7 +595,7 @@ if ( $CONFIG_DEFAULTS{'POSTGRES_SERVER'} eq 'localhost' ) {
         print TMPCMD $sql_command;
         close TMPCMD;
 
-        my $psql_commandline = $psql_exec . "/psql -f /tmp/pgcmd.$$.tmp >/dev/null 2>&1";
+        my $psql_commandline = $psql_exec . "/psql -U postgres -f /tmp/pgcmd.$$.tmp >/dev/null 2>&1";
 
         my $out      = qx($psql_commandline 2>&1);
         my $exitcode = $?;
@@ -621,7 +617,7 @@ if ( $CONFIG_DEFAULTS{'POSTGRES_SERVER'} eq 'localhost' ) {
 
     my $psql_command =
         $psql_exec
-      . "/createdb "
+      . "/createdb -U postgres "
       . $CONFIG_DEFAULTS{'POSTGRES_DATABASE'}
       . " --owner="
       . $CONFIG_DEFAULTS{'POSTGRES_USER'};
@@ -768,7 +764,7 @@ print "OK!\n";
 
 # 5b. DETERMINE HOW MUCH MEMORY TO GIVE TO GLASSFISH AS HEAP:
 
-my $gf_heap_default = "2048m";
+my $gf_heap_default = "1024m";
 my $sys_mem_total   = 0;
 
 if ( -e "/proc/meminfo" && open MEMINFO, "/proc/meminfo" ) {
@@ -802,9 +798,6 @@ if ( $sys_mem_total > 0 ) {
     print "\nSetting the heap limit for Glassfish to " . $gf_heap_default . "MB. \n";
     print "You may need to adjust this setting to better suit \n";
     print "your system.\n\n";
-
-    #$gf_heap_default .= "m";
-
 }
 else {
     print "\nCould not determine the amount of memory on your system.\n";
@@ -828,13 +821,16 @@ my $install_driver_jar = "";
 $install_driver_jar = $POSTGRES_DRIVERS{ $pg_major_version . "_" . $pg_minor_version };
 
 unless ( $install_driver_jar && -e "pgdriver/" . $install_driver_jar ) {
-    die "Installer could not find POSTGRES JDBC driver for your version of PostgresQL!\n("
+    $install_driver_jar = $POSTGRES_DRIVERS{ "9_3" };
+    print "Installer could not find POSTGRES JDBC driver for your version of PostgreSQL!\n("
       . $pg_major_version . "."
-      . $pg_minor_version . ")";
-
+      . $pg_minor_version . ") So using the last one " . $install_driver_jar . "\n";
 }
 
-system( "/bin/cp", "pgdriver/" . $install_driver_jar, $glassfish_dir . "/glassfish/lib" );
+my $exitcode = system( "sudo /bin/cp " . "pgdriver/" . $install_driver_jar . " ". $glassfish_dir . "/glassfish/lib" );
+unless ( $exitcode == 0 ) {
+    die "Copy pgdriver/" . $install_driver_jar . " to " . $glassfish_dir . "/glassfish/lib failed";
+}
 # more diagnostics needed?
 
 print "done!\n";
@@ -860,7 +856,7 @@ print "\n";
 
 # start domain, if not running:
 
-my $javacheck = `java -version`;
+my $javacheck = `sudo su - dataverse -c "java -version"`;
 my $exitcode  = $?;
 unless ( $exitcode == 0 ) {
     print STDERR "$javacheck\n" if $javacheck;
@@ -873,7 +869,7 @@ my $DOMAIN_DOWN =
 print STDERR $DOMAIN_DOWN . "\n";
 if ($DOMAIN_DOWN) {
     print "Trying to start domain up...\n";
-    system( $CONFIG_DEFAULTS{'GLASSFISH_DIRECTORY'} . "/bin/asadmin start-domain domain1" );
+    system( "sudo su - dataverse -c \"" . $CONFIG_DEFAULTS{'GLASSFISH_DIRECTORY'} . "/bin/asadmin start-domain domain1\"" );
 }
 else {
     print "domain appears to be up...\n";
@@ -916,7 +912,7 @@ unless ( -f $JHOVE_CONFIG ) {
 
 print "\nCopying additional configuration files... ";
 
-system( "/bin/cp -Rf " . $JHOVE_CONFIG . " " . $glassfish_dir . "/glassfish/domains/domain1/config" );
+system( "sudo /bin/cp -Rf " . $JHOVE_CONFIG . " " . $glassfish_dir . "/glassfish/domains/domain1/config" );
 #diagnostics needed!
 
 # install the DVN guides (HTML) into the application docroot:
@@ -936,7 +932,7 @@ print "done!\n";
 unless (
     (
         my $exit_code =
-        system( "cp -f " . $WARFILE_LOCATION . " " . $glassfish_dir . "/glassfish/domains/domain1/autodeploy" )
+        system( "sudo cp -f " . $WARFILE_LOCATION . " " . $glassfish_dir . "/glassfish/domains/domain1/autodeploy" )
     ) == 0
   )
 {
@@ -963,7 +959,7 @@ if ($pg_local_connection) {
     chdir("/tmp");
     $< = $POSTGRES_SYS_UID;
     $> = $POSTGRES_SYS_UID;
-    my $psql_command = $psql_exec . "/psql -d $CONFIG_DEFAULTS{'POSTGRES_DATABASE'} -f $SQL_REFERENCE_DATA";
+    my $psql_command = $psql_exec . "/psql -U postgres -d $CONFIG_DEFAULTS{'POSTGRES_DATABASE'} -f $SQL_REFERENCE_DATA";
 
     unless ( ( my $exitcode = system("$psql_command") ) == 0 ) {
         print STDERR "Could not populate Postgres database for the DVN app!\n";

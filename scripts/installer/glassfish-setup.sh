@@ -246,7 +246,7 @@ fi
 ###
 # Restart
 echo Updates done. Restarting...
-./asadmin $ASADMIN_OPTS restart-domain $GLASSFISH_DOMAIN
+sudo su - dataverse -c "$GLASSFISH_BIN_DIR/asadmin $ASADMIN_OPTS restart-domain $GLASSFISH_DOMAIN"
 
 ###
 # Clean up
